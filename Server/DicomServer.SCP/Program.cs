@@ -18,25 +18,20 @@ var host = Host.CreateDefaultBuilder(args)
     {
         services.AddFellowOakDicom();
         services.AddHostedService<Worker>();
+        services.AddImageManager<ImageSharpImageManager>();
     })
     .Build();
 
-DicomSetupBuilder
-    .UseServiceProvider(host.Services);
-
-new DicomSetupBuilder()
-    .RegisterServices(s => s.AddImageManager<ImageSharpImageManager>())
-    .Build();
-
+DicomSetupBuilder.UseServiceProvider(host.Services);
 
 await host.RunAsync();
 
 internal class Worker : IHostedService
 {
-    private readonly ILogger<Worker> _logger;
-    private readonly IDicomServerFactory _dicomServerFactory;
-    private readonly IDicomClientFactory _dicomClientFactory;
-    private IDicomServer _dicomServer;
+    readonly ILogger<Worker> _logger;
+    readonly IDicomServerFactory _dicomServerFactory;
+    readonly IDicomClientFactory _dicomClientFactory;
+    IDicomServer _dicomServer;
 
     public Worker(ILogger<Worker> logger, IDicomServerFactory dicomServerFactory,
         IDicomClientFactory dicomClientFactory)
@@ -50,11 +45,40 @@ internal class Worker : IHostedService
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting DICOM server");
-        _dicomServer = _dicomServerFactory.Create<EchoService>(104);
+        _dicomServer = _dicomServerFactory.Create<MyDicomService>(104);
         _logger.LogInformation("DICOM server is running");
 
-        var client = _dicomClientFactory.Create("127.0.0.1", 104, false, "AnySCU", "AnySCP");
+        var client = _dicomClientFactory.Create("127.0.0.1", 104, false, "STORESCU", "AnySCP");
 
+        string dicomFileToSend = @"C:\DicomStorage\dicom_examples\image-000001.dcm"; 
+
+        if (!File.Exists(dicomFileToSend))
+        {
+            _logger.LogError($"The DICOM file does not exist at path: {dicomFileToSend}");
+            return;
+        }
+
+        _logger.LogInformation($"Sending C-STORE request for file: {dicomFileToSend}");
+
+        var request = new DicomCStoreRequest(dicomFileToSend)
+        {
+            OnResponseReceived = (DicomCStoreRequest _, DicomCStoreResponse response) =>
+            {
+                if (response.Status == DicomStatus.Success)
+                {
+                    _logger.LogInformation("The SCP server has successfully accepted and saved the image.");
+                }
+                else
+                {
+                    _logger.LogError($"The SCP server returned an error: {response.Status}");
+                }
+            }
+        };
+
+        // Add the request to the client and send it.
+        await client.AddRequestAsync(request);
+        await client.SendAsync(cancellationToken);
+        
         _logger.LogInformation("Sending C-ECHO request");
         DicomCEchoResponse? response = null;
         await client.AddRequestAsync(new DicomCEchoRequest { OnResponseReceived = (_, r) => response = r });
@@ -76,14 +100,21 @@ internal class Worker : IHostedService
     }
 }
 
-public class EchoService : DicomService, IDicomServiceProvider, IDicomCEchoProvider
+public class MyDicomService : DicomService, IDicomServiceProvider, IDicomCEchoProvider, IDicomCStoreProvider
 {
-    private readonly ILogger<EchoService> _logger;
+    private readonly ILogger _logger;
 
-    public EchoService(INetworkStream stream,
-        Encoding fallbackEncoding,
-        ILogger<EchoService> logger,
-        DicomServiceDependencies dependencies) : base(stream, fallbackEncoding, logger, dependencies)
+    private static readonly DicomTransferSyntax[] AcceptedTransferSyntaxes =
+    {
+        DicomTransferSyntax.ExplicitVRLittleEndian,
+        DicomTransferSyntax.ImplicitVRLittleEndian,
+        DicomTransferSyntax.ImplicitVRBigEndian,
+        DicomTransferSyntax.JPEGLSLossless,
+    };
+
+    public MyDicomService(INetworkStream stream, Encoding fallbackEncoding, ILogger logger,
+        DicomServiceDependencies dependencies)
+        : base(stream, fallbackEncoding, logger, dependencies)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -118,6 +149,32 @@ public class EchoService : DicomService, IDicomServiceProvider, IDicomCEchoProvi
             // (e.g., CT Image Storage) before accepting it.
             presentationContext.SetResult(DicomPresentationContextResult.Accept);
         }
+        
+        // Now, for each service requested by the client...
+        foreach (var pc in association.PresentationContexts)
+        {
+            // If the service is Storage (C-STORE)...
+            if (pc.AbstractSyntax.StorageCategory != DicomStorageCategory.None)
+            {
+                // ...we accept it if the transfer syntax is one we support.
+                var acceptedSyntax = pc.GetTransferSyntaxes()
+                    .FirstOrDefault(ts => AcceptedTransferSyntaxes.Contains(ts));
+
+                if(acceptedSyntax != null)
+                {
+                    pc.SetResult(DicomPresentationContextResult.Accept, acceptedSyntax);
+                }
+                else
+                {
+                    pc.SetResult(DicomPresentationContextResult.RejectAbstractSyntaxNotSupported);
+                }
+            }
+            // Otherwise, we let it pass (in this simplified example, we accept the rest)
+            else
+            {
+                pc.SetResult(DicomPresentationContextResult.Accept);
+            }
+        }
 
         return SendAssociationAcceptAsync(association);
     }
@@ -130,6 +187,29 @@ public class EchoService : DicomService, IDicomServiceProvider, IDicomCEchoProvi
 
     public Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request) =>
         Task.FromResult(new DicomCEchoResponse(request, DicomStatus.Success));
+
+    // Request CStore
+    public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
+    {
+        var studyUid = request.Dataset.GetString(DicomTag.StudyInstanceUID);
+        var instUid = request.SOPInstanceUID.UID;
+        
+        var path = Path.Combine(@"C:\DicomStorage", studyUid); // Save in a folder per study
+        Directory.CreateDirectory(path);
+
+        var filePath = Path.Combine(path, instUid + ".dcm");
+        await request.File.SaveAsync(filePath);
+
+        _logger.LogInformation($"Image received and saved at: {filePath}");
+
+        // Returning a success response
+        return new DicomCStoreResponse(request, DicomStatus.Success);
+    }
+
+    public Task OnCStoreRequestExceptionAsync(string tempFileName, Exception e)
+    {
+        throw new Exception(e.Message);
+    }
 }
 
 public class DicomFolderSettings
