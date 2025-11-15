@@ -24,4 +24,8 @@
       </None>
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\ PacsLink.Core\PacsLink.Core.csproj" />
+    </ItemGroup>
+
 </Project>

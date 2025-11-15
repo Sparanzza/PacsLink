@@ -1,0 +1,6 @@
+@PacsLink.Api_HostAddress = http://localhost:5227
+
+GET {{PacsLink.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
