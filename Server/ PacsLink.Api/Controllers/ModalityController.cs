@@ -9,13 +9,11 @@ public class ModalityController : ControllerBase
 {
     private readonly ILogger<ModalityController> _logger;
     private readonly IStudyService _studyService;
-    private readonly IScuService _scuStudy;
 
-    public ModalityController(ILogger<ModalityController> logger, IStudyService studyService, IScuService scuService)
+    public ModalityController(ILogger<ModalityController> logger, IStudyService studyService)
     {
         _logger = logger;
         _studyService = studyService;
-        _scuStudy = scuService;
     }
 
     [HttpGet]

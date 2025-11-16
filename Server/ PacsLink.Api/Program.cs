@@ -1,3 +1,4 @@
+using PacsLink.Core.Configuration;
 using PacsLink.Core.DicomServices;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,8 +10,8 @@ builder.Services.AddControllers();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.Configure<StorageSettings>(builder.Configuration.GetSection(StorageSettings.SectionName));
 builder.Services.AddSingleton<IStudyService, StudyService>();
-builder.Services.AddSingleton<IScuService, ScuService>();
 
 var app = builder.Build();
 
