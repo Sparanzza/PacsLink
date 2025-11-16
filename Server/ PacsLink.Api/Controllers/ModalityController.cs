@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using PacsLink.Core.DicomServices;
 
 namespace PacsLink.Api.Controllers;
 
@@ -6,17 +7,20 @@ namespace PacsLink.Api.Controllers;
 [Route("[controller]")]
 public class ModalityController : ControllerBase
 {
-    
     private readonly ILogger<ModalityController> _logger;
+    private readonly IStudyService _studyService;
+    private readonly IScuService _scuStudy;
 
-    public ModalityController(ILogger<ModalityController> logger)
+    public ModalityController(ILogger<ModalityController> logger, IStudyService studyService, IScuService scuService)
     {
         _logger = logger;
+        _studyService = studyService;
+        _scuStudy = scuService;
     }
 
-    [HttpGet(Name = "GetWeatherForecast")]
-    public bool Get()
+    [HttpGet]
+    public List<string> GetStudies()
     {
-        return true;
+        return _studyService.GetAllStudyUids();
     }
 }
