@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using PacsLink.Core.DicomServices;
+using PacsLink.Core.DTOs; // Add this using for StudyDto
 
 namespace PacsLink.Api.Controllers;
 
@@ -16,9 +17,14 @@ public class ModalityController : ControllerBase
         _studyService = studyService;
     }
 
+    /// <summary>
+    /// Gets a list of all available DICOM studies.
+    /// </summary>
+    /// <returns>A list of studies with their metadata.</returns>
     [HttpGet]
-    public List<string> GetStudies()
+    public async Task<ActionResult<List<StudyDto>>> GetStudies()
     {
-        return _studyService.GetAllStudyUids();
+        var studies = await _studyService.GetAllStudies();
+        return Ok(studies);
     }
 }

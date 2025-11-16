@@ -81,7 +81,7 @@ internal class ModalityWorker : IHostedService, IDisposable
         {
             _logger.LogInformation("SCU Worker woke up to send a file.");
 
-            string fileToSend = Path.Combine(_storageSettings.DicomStoragePath ?? "", "dicom_examples", "image-000001.dcm");
+            string fileToSend = Path.Combine(_storageSettings.DicomStoragePath ?? "", "image-000001.dcm");
 
             if (File.Exists(fileToSend))
             {
